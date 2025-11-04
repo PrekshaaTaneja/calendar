@@ -1,139 +1,151 @@
-import React, { useState } from "react";
-import { Calendar, momentLocalizer } from "react-big-calendar";
+import React, { useState, useEffect } from "react";
+import { Calendar, momentLocalizer, Views } from "react-big-calendar";
 import moment from "moment";
 import "react-big-calendar/lib/css/react-big-calendar.css";
+import EventModal from "./EventModal";
 
 const localizer = momentLocalizer(moment);
 
 const CalendarPage = ({ showForm, setShowForm }) => {
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [newEvent, setNewEvent] = useState({ title: "", start: "", end: "" });
+  const [form, setForm] = useState({
+    title: "",
+    start: "",
+    end: "",
+    description: "",
+    allDay: false,
+  });
+  const [isEditing, setIsEditing] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
 
-  // For navigation
+  // ✅ Navigation & view state
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentView, setCurrentView] = useState(Views.MONTH); // default view
+
+  useEffect(() => {
+    fetch("http://localhost:5000/api/events")
+      .then((res) => res.json())
+      .then((data) => setEvents(data))
+      .catch((err) => console.error("Error fetching events:", err));
+  }, []);
+
+  useEffect(() => {
+    if (showForm) {
+      setForm({
+        title: "",
+        start: "",
+        end: "",
+        description: "",
+        allDay: false,
+      });
+      setIsEditing(false);
+      setModalOpen(true);
+      setShowForm(false);
+    }
+  }, [showForm, setShowForm]);
 
   const handleSelectSlot = ({ start, end }) => {
-    setNewEvent({ title: "", start, end });
-    setShowForm(true);
+    setForm({
+      title: "",
+      start: moment(start).format("YYYY-MM-DDTHH:mm"),
+      end: moment(end).format("YYYY-MM-DDTHH:mm"),
+      description: "",
+      allDay: false,
+    });
+    setIsEditing(false);
+    setModalOpen(true);
   };
 
   const handleSelectEvent = (event) => {
     setSelectedEvent(event);
+    setForm({
+      title: event.title,
+      start: moment(event.start).format("YYYY-MM-DDTHH:mm"),
+      end: moment(event.end).format("YYYY-MM-DDTHH:mm"),
+      description: event.description || "",
+      allDay: event.allDay || false,
+    });
+    setIsEditing(true);
+    setModalOpen(true);
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setNewEvent({ ...newEvent, [name]: value });
-  };
-
-  const handleSaveEvent = () => {
-    if (newEvent.title && newEvent.start && newEvent.end) {
-      setEvents([...events, { ...newEvent, id: events.length + 1 }]);
-      setShowForm(false);
-      setNewEvent({ title: "", start: "", end: "" });
-    } else {
-      alert("Please fill all fields before saving!");
+  const handleSaveEvent = async (actionType) => {
+    if (actionType === "delete") {
+      await fetch(`http://localhost:5000/api/events/${selectedEvent._id}`, {
+        method: "DELETE",
+      });
+      setEvents(events.filter((e) => e._id !== selectedEvent._id));
+      setModalOpen(false);
+      return;
     }
-  };
 
-  const handleNext = () => {
-    setCurrentDate(moment(currentDate).add(1, "month").toDate());
-  };
+    const eventData = {
+      title: form.title,
+      description: form.description,
+      start: new Date(form.start),
+      end: new Date(form.end),
+      allDay: form.allDay,
+    };
 
-  const handleBack = () => {
-    setCurrentDate(moment(currentDate).subtract(1, "month").toDate());
-  };
+    if (isEditing) {
+      const res = await fetch(
+        `http://localhost:5000/api/events/${selectedEvent._id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(eventData),
+        }
+      );
+      const updated = await res.json();
+      setEvents(events.map((e) => (e._id === updated._id ? updated : e)));
+    } else {
+      const res = await fetch("http://localhost:5000/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eventData),
+      });
+      const created = await res.json();
+      setEvents([...events, created]);
+    }
 
-  const handleNavigate = (date) => {
-    setCurrentDate(date);
+    setModalOpen(false);
   };
 
   return (
-    <div className="flex-1 bg-gray-100 p-6">
-      {/* Header section with Back/Next buttons */}
-      <div className="flex items-center justify-between mb-4">
-        {/* <div className="flex items-center gap-2">
-          <button
-            onClick={handleBack}
-            className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition"
-          >
-            ← Back
-          </button>
-          <button
-            onClick={handleNext}
-            className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition"
-          >
-            Next →
-          </button>
-        </div> */}
-        <h3 className="text-lg font-medium text-gray-700">
-          {moment(currentDate).format("MMMM YYYY")}
-        </h3>
-      </div>
-
-      {/* Calendar */}
+    <div className="flex-1 bg-gray-100 p-6 relative">
       <div className="bg-white p-4 rounded shadow">
         <Calendar
           localizer={localizer}
-          events={events}
+          events={events.map((e) => ({
+            ...e,
+            start: new Date(e.start),
+            end: new Date(e.end),
+          }))}
           startAccessor="start"
           endAccessor="end"
           selectable
           onSelectEvent={handleSelectEvent}
           onSelectSlot={handleSelectSlot}
+          // ✅ Controlled navigation
           date={currentDate}
-          onNavigate={handleNavigate}
-          style={{ height: "75vh" }}
+          onNavigate={(newDate) => setCurrentDate(newDate)}
+          // ✅ Controlled view switching
+          view={currentView}
+          onView={(newView) => setCurrentView(newView)}
+          views={["month", "week", "day", "agenda"]}
+          style={{ height: "80vh" }}
         />
       </div>
 
-      {/* Add Event Form */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-96">
-            <h2 className="text-lg font-bold mb-4">Add Event</h2>
-            <input
-              type="text"
-              name="title"
-              placeholder="Event Title"
-              value={newEvent.title}
-              onChange={handleInputChange}
-              className="w-full border p-2 mb-3 rounded"
-            />
-            <label className="block text-sm font-medium mb-1">Start Date</label>
-            <input
-              type="datetime-local"
-              name="start"
-              value={moment(newEvent.start).format("YYYY-MM-DDTHH:mm")}
-              onChange={handleInputChange}
-              className="w-full border p-2 mb-3 rounded"
-            />
-            <label className="block text-sm font-medium mb-1">End Date</label>
-            <input
-              type="datetime-local"
-              name="end"
-              value={moment(newEvent.end).format("YYYY-MM-DDTHH:mm")}
-              onChange={handleInputChange}
-              className="w-full border p-2 mb-3 rounded"
-            />
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveEvent}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EventModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleSaveEvent}
+        form={form}
+        setForm={setForm}
+        isEditing={isEditing}
+      />
     </div>
   );
 };

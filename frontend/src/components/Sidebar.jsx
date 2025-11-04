@@ -22,7 +22,7 @@ const Sidebar = ({ onAddEventClick }) => {
       </div>
 
       <div className="text-sm text-gray-400 text-center mt-6">
-        © 2025 Google Calendar Clone
+        © 2025 Google Calendar
       </div>
     </aside>
   );
